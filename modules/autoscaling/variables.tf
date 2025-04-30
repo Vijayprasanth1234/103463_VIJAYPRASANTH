@@ -136,3 +136,9 @@ variable "scale_in_threshold" {
   type        = number
   default     = 30
 }
+
+variable "secrets_access_policy_arn" {
+  description = "ARN of the IAM policy for accessing secrets"
+  type        = string
+  default     = null
+}

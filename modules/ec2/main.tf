@@ -62,6 +62,13 @@ resource "aws_iam_role_policy_attachment" "cloudwatch_policy" {
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
 }
 
+# Add Secrets Manager policy attachment if provided
+resource "aws_iam_role_policy_attachment" "secrets_policy" {
+  count      = var.secrets_access_policy_arn != null ? 1 : 0
+  role       = aws_iam_role.ec2_role.name
+  policy_arn = var.secrets_access_policy_arn
+}
+
 # EC2 instances
 resource "aws_instance" "app_servers" {
   count = var.instance_count

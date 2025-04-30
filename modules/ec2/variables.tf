@@ -88,3 +88,9 @@ variable "alarm_actions" {
   type        = list(string)
   default     = []
 }
+
+variable "secrets_access_policy_arn" {
+  description = "ARN of the IAM policy for accessing secrets"
+  type        = string
+  default     = null
+}

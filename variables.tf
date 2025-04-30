@@ -120,3 +120,23 @@ variable "alarm_email" {
   type        = string
   default     = null
 }
+
+# New variables for Secrets Manager
+variable "api_keys" {
+  description = "Map of API keys for external services"
+  type        = map(string)
+  default     = {}
+  sensitive   = true
+}
+
+variable "rotation_lambda_arn" {
+  description = "ARN of the Lambda function that can rotate secrets"
+  type        = string
+  default     = null
+}
+
+variable "enable_secret_rotation" {
+  description = "Whether to enable automatic secret rotation"
+  type        = bool
+  default     = false
+}

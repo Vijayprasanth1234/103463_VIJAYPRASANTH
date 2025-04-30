@@ -6,6 +6,7 @@
 # - Remote state management
 # - Common tagging strategy
 # - Module references for infrastructure components
+# - Secrets management for sensitive data
 ###############################################
 
 terraform {
@@ -54,6 +55,30 @@ locals {
 # Data source for KMS key for EBS encryption
 data "aws_kms_key" "ebs" {
   key_id = "alias/aws/ebs"
+}
+
+# Secrets Manager Module - Secure Storage for Sensitive Data
+module "secrets_manager" {
+  source = "./modules/secrets_manager"
+
+  environment             = var.environment
+  project_name            = var.project_name
+  common_tags             = local.common_tags
+  
+  # Database credentials
+  db_username             = "admin"
+  db_password             = var.db_password
+  db_host                 = "localhost"
+  db_port                 = 5432
+  db_name                 = "mydb"
+  
+  # Application secrets
+  alarm_email             = var.alarm_email
+  api_keys                = var.api_keys
+  
+  # Secret rotation configuration
+  enable_rotation         = var.environment == "prod" ? true : false
+  rotation_days           = 30
 }
 
 # VPC Module - Network Infrastructure
@@ -112,6 +137,9 @@ module "autoscaling" {
   scale_out_threshold = 70
   scale_in_threshold  = 30
   
+  # Secrets Manager access
+  secrets_access_policy_arn = module.secrets_manager.secrets_access_policy_arn
+  
   # User data script for instance configuration
   user_data = <<-EOF
     #!/bin/bash
@@ -121,6 +149,8 @@ module "autoscaling" {
     # Install required software
     amazon-linux-extras install -y nginx1
     yum install -y amazon-cloudwatch-agent
+    yum install -y python3 python3-pip jq
+    pip3 install boto3
     
     # Configure and start services
     systemctl enable nginx
@@ -128,6 +158,83 @@ module "autoscaling" {
     
     # Set up CloudWatch agent
     /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c ssm:AmazonCloudWatch-linux
+    
+    # Create script to fetch database credentials from Secrets Manager
+    cat > /usr/local/bin/fetch-secrets.py << 'PYTHON_SCRIPT'
+    #!/usr/bin/env python3
+    import boto3
+    import json
+    import os
+    
+    def get_secret(secret_name, region_name="us-east-1"):
+        """Retrieve a secret from AWS Secrets Manager"""
+        session = boto3.session.Session()
+        client = session.client(service_name='secretsmanager', region_name=region_name)
+        
+        try:
+            response = client.get_secret_value(SecretId=secret_name)
+            if 'SecretString' in response:
+                return json.loads(response['SecretString'])
+            else:
+                return None
+        except Exception as e:
+            print(f"Error retrieving secret: {str(e)}")
+            return None
+    
+    if __name__ == "__main__":
+        # Get region from instance metadata
+        region = os.popen('curl -s http://169.254.169.254/latest/meta-data/placement/region').read()
+        
+        # Get database credentials
+        db_secret_name = "${module.secrets_manager.database_secret_name}"
+        db_creds = get_secret(db_secret_name, region)
+        
+        if db_creds:
+            # Create directory for application configuration
+            os.makedirs('/etc/app', exist_ok=True)
+            
+            # Write to configuration file with restricted permissions
+            with open('/etc/app/database.json', 'w') as f:
+                json.dump(db_creds, f)
+            
+            # Set secure permissions (only root can read)
+            os.chmod('/etc/app/database.json', 0o600)
+            
+            print("Database credentials retrieved successfully")
+        else:
+            print("ERROR: Failed to retrieve database credentials")
+        
+        # Get application secrets
+        app_secret_name = "${module.secrets_manager.application_secret_name}"
+        app_secrets = get_secret(app_secret_name, region)
+        
+        if app_secrets:
+            # Create directory for application configuration
+            os.makedirs('/etc/app', exist_ok=True)
+            
+            # Write to configuration file with restricted permissions
+            with open('/etc/app/application.json', 'w') as f:
+                json.dump(app_secrets, f)
+            
+            # Set secure permissions (only root can read)
+            os.chmod('/etc/app/application.json', 0o600)
+            
+            print("Application secrets retrieved successfully")
+        else:
+            print("ERROR: Failed to retrieve application secrets")
+    PYTHON_SCRIPT
+    
+    # Make the script executable
+    chmod +x /usr/local/bin/fetch-secrets.py
+    
+    # Create directory for application configuration
+    mkdir -p /etc/app
+    
+    # Run the script to fetch secrets
+    /usr/local/bin/fetch-secrets.py
+    
+    # Set up a cron job to periodically refresh secrets
+    echo "0 */6 * * * /usr/local/bin/fetch-secrets.py > /var/log/fetch-secrets.log 2>&1" | crontab -
     
     # Tag instance with metadata
     INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
@@ -159,4 +266,7 @@ module "ec2_instances" {
   
   # CloudWatch alarms
   alarm_actions      = []
+  
+  # Secrets Manager access
+  secrets_access_policy_arn = module.secrets_manager.secrets_access_policy_arn
 }

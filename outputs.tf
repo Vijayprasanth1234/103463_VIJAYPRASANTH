@@ -80,6 +80,37 @@ output "asg_iam_role_name" {
   value       = module.autoscaling.iam_role_name
 }
 
+# Secrets Manager Outputs
+output "database_secret_arn" {
+  description = "ARN of the database credentials secret"
+  value       = module.secrets_manager.database_secret_arn
+}
+
+output "application_secret_arn" {
+  description = "ARN of the application secrets"
+  value       = module.secrets_manager.application_secret_arn
+}
+
+output "secrets_kms_key_arn" {
+  description = "ARN of the KMS key used for encrypting secrets"
+  value       = module.secrets_manager.kms_key_arn
+}
+
+output "secrets_access_policy_arn" {
+  description = "ARN of the IAM policy for accessing secrets"
+  value       = module.secrets_manager.secrets_access_policy_arn
+}
+
+output "database_secret_name" {
+  description = "Name of the database credentials secret"
+  value       = module.secrets_manager.database_secret_name
+}
+
+output "application_secret_name" {
+  description = "Name of the application secrets"
+  value       = module.secrets_manager.application_secret_name
+}
+
 # Summary Output
 output "infrastructure_summary" {
   description = "Summary of the infrastructure created"
@@ -92,5 +123,9 @@ output "infrastructure_summary" {
     asg_min_size       = var.environment == "prod" ? 3 : 2
     asg_max_size       = var.environment == "prod" ? 10 : 5
     instance_type      = var.environment == "prod" ? "t3.medium" : "t3.micro"
+    secrets_manager    = {
+      database_secret_name = module.secrets_manager.database_secret_name
+      application_secret_name = module.secrets_manager.application_secret_name
+    }
   }
 }
